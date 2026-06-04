@@ -19,6 +19,31 @@ use Illuminate\Support\Facades\Route;
 Route::redirect('/', '/dashboard');
 
 if (env('SEED_TOKEN')) {
+    Route::post('/setup/db-check', function (Request $request) {
+        abort_unless(hash_equals((string) env('SEED_TOKEN'), (string) $request->bearerToken()), 404);
+
+        try {
+            $client = new \MongoDB\Client((string) env('DB_URI', env('MONGODB_URI')), [
+                'connectTimeoutMS' => 5000,
+                'serverSelectionTimeoutMS' => 5000,
+            ]);
+            $client->selectDatabase((string) env('DB_DATABASE', 'school_management_system'))
+                ->command(['ping' => 1])
+                ->toArray();
+        } catch (\Throwable $exception) {
+            return response()->json([
+                'message' => 'MongoDB check failed.',
+                'error' => $exception::class,
+                'detail' => $exception->getMessage(),
+            ], 500);
+        }
+
+        return response()->json([
+            'message' => 'MongoDB connection ok.',
+            'database' => env('DB_DATABASE', 'school_management_system'),
+        ]);
+    });
+
     Route::post('/setup/seed', function (Request $request) {
         abort_unless(hash_equals((string) env('SEED_TOKEN'), (string) $request->bearerToken()), 404);
 
