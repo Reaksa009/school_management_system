@@ -12,6 +12,8 @@
 /.vscode
 /.zed
 /.vercel
+/bootstrap/cache/*.php
+!/bootstrap/cache/.gitignore
 /auth.json
 /node_modules
 /public/build
