@@ -19,18 +19,24 @@ use Illuminate\Support\Facades\Route;
 Route::redirect('/', '/dashboard');
 
 if (env('SEED_TOKEN')) {
+    $setupToken = function (Request $request): string {
+        return (string) ($request->bearerToken() ?: $request->header('X-Seed-Token') ?: $request->input('token'));
+    };
+
     Route::post('/setup/ping', function (Request $request) {
-        abort_unless(hash_equals((string) env('SEED_TOKEN'), (string) $request->bearerToken()), 404);
+        $token = (string) ($request->bearerToken() ?: $request->header('X-Seed-Token') ?: $request->input('token'));
+
+        abort_unless(hash_equals((string) env('SEED_TOKEN'), $token), 404);
 
         return response()->json([
             'message' => 'Setup route ok.',
         ]);
     });
 
-    Route::post('/setup/db-check', function (Request $request) {
-        try {
-            abort_unless(hash_equals((string) env('SEED_TOKEN'), (string) $request->bearerToken()), 404);
+    Route::post('/setup/db-check', function (Request $request) use ($setupToken) {
+        abort_unless(hash_equals((string) env('SEED_TOKEN'), $setupToken($request)), 404);
 
+        try {
             $client = new \MongoDB\Client((string) env('DB_URI', env('MONGODB_URI')), [
                 'connectTimeoutMS' => 5000,
                 'serverSelectionTimeoutMS' => 5000,
@@ -52,10 +58,10 @@ if (env('SEED_TOKEN')) {
         ]);
     });
 
-    Route::post('/setup/seed', function (Request $request) {
-        try {
-            abort_unless(hash_equals((string) env('SEED_TOKEN'), (string) $request->bearerToken()), 404);
+    Route::post('/setup/seed', function (Request $request) use ($setupToken) {
+        abort_unless(hash_equals((string) env('SEED_TOKEN'), $setupToken($request)), 404);
 
+        try {
             Artisan::call('db:seed', ['--force' => true]);
         } catch (\Throwable $exception) {
             return response(json_encode([
