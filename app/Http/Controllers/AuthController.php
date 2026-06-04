@@ -8,6 +8,8 @@ use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Validation\Rule;
+use Illuminate\Validation\ValidationException;
+use Throwable;
 
 class AuthController extends Controller
 {
@@ -38,15 +40,19 @@ class AuthController extends Controller
 
         $credentials['is_active'] = true;
 
-        if (Auth::attempt($credentials, $request->boolean('remember'))) {
-            $request->session()->regenerate();
+        try {
+            if (Auth::attempt($credentials, $request->boolean('remember'))) {
+                $request->session()->regenerate();
 
-            return redirect()->intended(route('dashboard'))->with('success', 'ចូលប្រើប្រព័ន្ធបានជោគជ័យ។');
+                return redirect()->intended(route('dashboard'))->with('success', 'Logged in successfully.');
+            }
+        } catch (Throwable $exception) {
+            return $this->databaseUnavailable($request, $exception);
         }
 
         return back()
             ->withInput($request->only('email', 'remember'))
-            ->withErrors(['email' => 'អ៊ីមែល ឬពាក្យសម្ងាត់មិនត្រឹមត្រូវ។']);
+            ->withErrors(['email' => 'The email or password is incorrect.']);
     }
 
     public function register(Request $request)
@@ -55,47 +61,67 @@ class AuthController extends Controller
             'role' => ['required', Rule::in(['student', 'teacher'])],
             'profile_code' => ['required', 'max:50'],
             'name' => ['required', 'max:255'],
-            'email' => ['required', 'email', 'max:255', 'unique:users,email'],
+            'email' => ['required', 'email', 'max:255'],
             'phone' => ['nullable', 'max:50'],
             'password' => ['required', 'confirmed', 'min:6'],
         ]);
 
-        if ($data['role'] === 'student') {
-            $profile = Student::where('student_code', $data['profile_code'])->first();
-
-            if (! $profile) {
-                return back()->withInput()->withErrors(['profile_code' => 'មិនឃើញលេខសម្គាល់សិស្សនេះទេ។']);
+        try {
+            if (User::where('email', $data['email'])->exists()) {
+                throw ValidationException::withMessages([
+                    'email' => 'This email is already registered.',
+                ]);
             }
 
-            if ($profile->user_id) {
-                return back()->withInput()->withErrors(['profile_code' => 'សិស្សនេះមានគណនីភ្ជាប់រួចហើយ។']);
-            }
-        } else {
-            $profile = Teacher::where('teacher_code', $data['profile_code'])->first();
+            if ($data['role'] === 'student') {
+                $profile = Student::where('student_code', $data['profile_code'])->first();
 
-            if (! $profile) {
-                return back()->withInput()->withErrors(['profile_code' => 'មិនឃើញលេខសម្គាល់គ្រូនេះទេ។']);
+                if (! $profile) {
+                    return back()
+                        ->withInput($request->except(['password', 'password_confirmation']))
+                        ->withErrors(['profile_code' => 'Student code was not found.']);
+                }
+
+                if ($profile->user_id) {
+                    return back()
+                        ->withInput($request->except(['password', 'password_confirmation']))
+                        ->withErrors(['profile_code' => 'This student already has a linked account.']);
+                }
+            } else {
+                $profile = Teacher::where('teacher_code', $data['profile_code'])->first();
+
+                if (! $profile) {
+                    return back()
+                        ->withInput($request->except(['password', 'password_confirmation']))
+                        ->withErrors(['profile_code' => 'Teacher code was not found.']);
+                }
+
+                if ($profile->user_id) {
+                    return back()
+                        ->withInput($request->except(['password', 'password_confirmation']))
+                        ->withErrors(['profile_code' => 'This teacher already has a linked account.']);
+                }
             }
 
-            if ($profile->user_id) {
-                return back()->withInput()->withErrors(['profile_code' => 'គ្រូនេះមានគណនីភ្ជាប់រួចហើយ។']);
-            }
+            $user = User::create([
+                'name' => $data['name'],
+                'email' => $data['email'],
+                'role' => $data['role'],
+                'phone' => $data['phone'] ?? null,
+                'is_active' => false,
+                'password' => $data['password'],
+            ]);
+
+            $profile->update(['user_id' => $user->id]);
+        } catch (ValidationException $exception) {
+            throw $exception;
+        } catch (Throwable $exception) {
+            return $this->databaseUnavailable($request, $exception, 'profile_code');
         }
-
-        $user = User::create([
-            'name' => $data['name'],
-            'email' => $data['email'],
-            'role' => $data['role'],
-            'phone' => $data['phone'] ?? null,
-            'is_active' => false,
-            'password' => $data['password'],
-        ]);
-
-        $profile->update(['user_id' => $user->id]);
 
         return redirect()
             ->route('login')
-            ->with('success', 'បានបង្កើតសំណើគណនី។ សូមរង់ចាំ Admin អនុម័តមុនចូលប្រើ។');
+            ->with('success', 'Account request created. Please wait for admin approval before logging in.');
     }
 
     public function logout(Request $request)
@@ -105,6 +131,24 @@ class AuthController extends Controller
         $request->session()->invalidate();
         $request->session()->regenerateToken();
 
-        return redirect()->route('login')->with('success', 'ចាកចេញពីប្រព័ន្ធបានជោគជ័យ។');
+        return redirect()->route('login')->with('success', 'Logged out successfully.');
+    }
+
+    private function databaseUnavailable(Request $request, Throwable $exception, string $field = 'email')
+    {
+        $missingMongoDsn = config('database.default') === 'mongodb'
+            && ! config('database.connections.mongodb.dsn');
+
+        if (! $missingMongoDsn) {
+            report($exception);
+        }
+
+        $message = $missingMongoDsn
+            ? 'Database is not configured. Add DB_URI or MONGODB_URI in Vercel.'
+            : 'Database is unavailable. Please try again later.';
+
+        return back()
+            ->withInput($request->except(['password', 'password_confirmation']))
+            ->withErrors([$field => $message]);
     }
 }
