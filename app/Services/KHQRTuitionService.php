@@ -144,6 +144,7 @@ class KHQRTuitionService
             throw new \RuntimeException($data['error'] ?? 'KHQR Link API returned an invalid response.');
         }
 
+        $qrUrl = $this->secureQrUrl((string) $data['qr']);
         $expiresAt = filled($data['expires_at'] ?? null)
             ? Carbon::parse($data['expires_at'])
             : now()->addSeconds($this->expiresInSeconds());
@@ -151,7 +152,7 @@ class KHQRTuitionService
         return [
             'provider' => 'khqr_link',
             'display_type' => 'image_url',
-            'qr_data' => (string) $data['qr'],
+            'qr_data' => $qrUrl,
             'md5' => (string) $data['md5'],
             'reference' => $reference,
             'expires_at' => $expiresAt,
@@ -168,7 +169,7 @@ class KHQRTuitionService
                 'reference_id' => $data['reference_id'] ?? $this->numericReferenceId($payment),
                 'reference_code' => $data['reference_code'] ?? $reference,
                 'tran' => $data['tran'] ?? null,
-                'qr' => $data['qr'],
+                'qr' => $qrUrl,
                 'md5' => $data['md5'],
                 'purpose' => $data['purpose'] ?? $purpose,
                 'metadata' => $metadata,
@@ -354,6 +355,11 @@ class KHQRTuitionService
     private function numericReferenceId(Payment $payment): int
     {
         return (int) sprintf('%u', crc32((string) $payment->getKey()));
+    }
+
+    private function secureQrUrl(string $url): string
+    {
+        return preg_replace('/^http:\/\/api\.khqr\.link\//i', 'https://api.khqr.link/', $url) ?: $url;
     }
 
     private function required(string $key, mixed $value): string

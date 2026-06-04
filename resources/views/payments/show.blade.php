@@ -215,8 +215,9 @@
                     target.innerHTML = '';
 
                     if (qrDisplayType === 'image_url' || /^https?:\/\//i.test(qrValue)) {
+                        const imageUrl = qrValue.replace(/^http:\/\/api\.khqr\.link\//i, 'https://api.khqr.link/');
                         const image = document.createElement('img');
-                        image.src = qrValue;
+                        image.src = imageUrl;
                         image.alt = 'KHQR';
                         image.width = size;
                         image.height = size;
