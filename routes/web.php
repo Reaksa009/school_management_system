@@ -12,9 +12,24 @@ use App\Http\Controllers\StudentController;
 use App\Http\Controllers\SubjectController;
 use App\Http\Controllers\TeacherController;
 use App\Http\Controllers\UserController;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Route;
 
 Route::redirect('/', '/dashboard');
+
+if (env('SEED_TOKEN')) {
+    Route::post('/setup/seed', function (Request $request) {
+        abort_unless(hash_equals((string) env('SEED_TOKEN'), (string) $request->bearerToken()), 404);
+
+        Artisan::call('db:seed', ['--force' => true]);
+
+        return response()->json([
+            'message' => 'Database seeded.',
+            'output' => trim(Artisan::output()),
+        ]);
+    });
+}
 
 Route::middleware('guest')->group(function () {
     Route::get('/login', [AuthController::class, 'showLogin'])->name('login');
