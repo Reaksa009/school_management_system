@@ -11,7 +11,9 @@ class AppServiceProvider extends ServiceProvider
      */
     public function register(): void
     {
-        if (! env('VERCEL')) {
+        $viewCompiledPath = env('VIEW_COMPILED_PATH');
+
+        if (! $viewCompiledPath && ! str_starts_with(__DIR__, '/var/task')) {
             return;
         }
 
@@ -20,7 +22,7 @@ class AppServiceProvider extends ServiceProvider
             'cache' => $basePath.DIRECTORY_SEPARATOR.'cache',
             'logs' => $basePath.DIRECTORY_SEPARATOR.'logs',
             'sessions' => $basePath.DIRECTORY_SEPARATOR.'sessions',
-            'views' => $basePath.DIRECTORY_SEPARATOR.'views',
+            'views' => $viewCompiledPath ?: $basePath.DIRECTORY_SEPARATOR.'views',
         ];
 
         foreach ($paths as $path) {
