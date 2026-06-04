@@ -11,7 +11,33 @@ class AppServiceProvider extends ServiceProvider
      */
     public function register(): void
     {
-        //
+        if (! env('VERCEL')) {
+            return;
+        }
+
+        $basePath = rtrim(sys_get_temp_dir(), DIRECTORY_SEPARATOR).DIRECTORY_SEPARATOR.'laravel';
+        $paths = [
+            'cache' => $basePath.DIRECTORY_SEPARATOR.'cache',
+            'logs' => $basePath.DIRECTORY_SEPARATOR.'logs',
+            'sessions' => $basePath.DIRECTORY_SEPARATOR.'sessions',
+            'views' => $basePath.DIRECTORY_SEPARATOR.'views',
+        ];
+
+        foreach ($paths as $path) {
+            if (! is_dir($path)) {
+                mkdir($path, 0777, true);
+            }
+        }
+
+        config([
+            'cache.stores.file.path' => $paths['cache'],
+            'cache.stores.file.lock_path' => $paths['cache'],
+            'logging.channels.daily.path' => $paths['logs'].DIRECTORY_SEPARATOR.'laravel.log',
+            'logging.channels.emergency.path' => $paths['logs'].DIRECTORY_SEPARATOR.'laravel.log',
+            'logging.channels.single.path' => $paths['logs'].DIRECTORY_SEPARATOR.'laravel.log',
+            'session.files' => $paths['sessions'],
+            'view.compiled' => $paths['views'],
+        ]);
     }
 
     /**
