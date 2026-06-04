@@ -5,6 +5,8 @@ namespace App\Services;
 use App\Models\Payment;
 use Carbon\CarbonInterface;
 use Illuminate\Support\Arr;
+use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Http;
 use KHQR\BakongKHQR;
 use KHQR\Helpers\KHQRData;
 use KHQR\Helpers\Utils;
@@ -17,6 +19,15 @@ class KHQRTuitionService
     {
         $payment->loadMissing('student.classRoom');
 
+        if ($this->usesKhqrLink()) {
+            return $this->createKhqrLinkPaymentRequest($payment);
+        }
+
+        return $this->createLocalPaymentRequest($payment);
+    }
+
+    private function createLocalPaymentRequest(Payment $payment): array
+    {
         $accountId = $this->required('KHQR_BAKONG_ACCOUNT_ID', config('khqr.bakong_account_id'));
         $accountName = (string) config('khqr.account_name', config('app.name'));
         $merchantCity = (string) config('khqr.merchant_city', 'PHNOM PENH');
@@ -65,6 +76,7 @@ class KHQRTuitionService
 
         return [
             'provider' => 'khqr',
+            'display_type' => 'payload',
             'qr_data' => $payload,
             'md5' => md5($payload),
             'reference' => $reference,
@@ -90,8 +102,88 @@ class KHQRTuitionService
         ];
     }
 
+    private function createKhqrLinkPaymentRequest(Payment $payment): array
+    {
+        $accountId = $this->required('KHQR_BAKONG_ACCOUNT_ID', config('khqr.bakong_account_id'));
+        $accountName = $this->required('KHQR_ACCOUNT_NAME', config('khqr.account_name', config('app.name')));
+        $apiBase = rtrim($this->required('KHQR_LINK_API_BASE', config('khqr.link_api_base')), '/');
+        $currency = strtoupper((string) config('khqr.currency', 'USD'));
+        $reference = substr($payment->receipt_no, 0, 25);
+        $purpose = strtoupper((string) config('khqr.link_purpose', 'INVOICE'));
+        $metadata = [
+            'source' => 'school_management_system',
+            'receipt_no' => $payment->receipt_no,
+            'student_id' => (string) $payment->student_id,
+            'student_code' => $payment->student?->student_code,
+            'student_name' => $payment->student?->full_name,
+            'class' => $payment->student?->classRoom?->name,
+            'billing_month' => $payment->billing_month,
+        ];
+
+        $response = Http::timeout(15)
+            ->retry(2, 250)
+            ->acceptJson()
+            ->get($apiBase.'/v1/khqr/create', [
+                'amount' => $this->formatAmount((float) $payment->amount, $this->currencyCode($currency)),
+                'bakongid' => $accountId,
+                'merchantname' => $accountName,
+                'purpose' => in_array($purpose, ['GENERAL', 'INVOICE', 'SUBSCRIPTION', 'ADDON'], true) ? $purpose : 'INVOICE',
+                'reference_type' => 'invoice',
+                'reference_id' => $this->numericReferenceId($payment),
+                'reference_code' => $reference,
+                'metadata' => json_encode($metadata, JSON_UNESCAPED_SLASHES),
+            ]);
+
+        if (! $response->successful()) {
+            throw new \RuntimeException($response->json('error') ?: 'KHQR Link API request failed.');
+        }
+
+        $data = $response->json();
+
+        if (($data['status'] ?? null) !== 'success' || blank($data['qr'] ?? null) || blank($data['md5'] ?? null)) {
+            throw new \RuntimeException($data['error'] ?? 'KHQR Link API returned an invalid response.');
+        }
+
+        $expiresAt = filled($data['expires_at'] ?? null)
+            ? Carbon::parse($data['expires_at'])
+            : now()->addSeconds($this->expiresInSeconds());
+
+        return [
+            'provider' => 'khqr_link',
+            'display_type' => 'image_url',
+            'qr_data' => (string) $data['qr'],
+            'md5' => (string) $data['md5'],
+            'reference' => $reference,
+            'expires_at' => $expiresAt,
+            'credential' => $accountId,
+            'account_name' => $accountName,
+            'merchant_city' => (string) config('khqr.merchant_city', 'PHNOM PENH'),
+            'raw_payload' => [
+                'api_base' => $apiBase,
+                'merchant_name' => $accountName,
+                'bakong_account_id' => $accountId,
+                'amount' => $data['amount'] ?? (float) $payment->amount,
+                'currency' => $data['currency'] ?? $currency,
+                'reference' => $reference,
+                'reference_id' => $data['reference_id'] ?? $this->numericReferenceId($payment),
+                'reference_code' => $data['reference_code'] ?? $reference,
+                'tran' => $data['tran'] ?? null,
+                'qr' => $data['qr'],
+                'md5' => $data['md5'],
+                'purpose' => $data['purpose'] ?? $purpose,
+                'metadata' => $metadata,
+                'created_at' => $data['created_at'] ?? now()->toIso8601String(),
+                'expires_at' => $expiresAt->toIso8601String(),
+            ],
+        ];
+    }
+
     public function checkPaymentStatus(Payment $payment): array
     {
+        if ($this->usesKhqrLink($payment)) {
+            return $this->checkKhqrLinkPaymentStatus($payment);
+        }
+
         $token = $this->required('KHQR_API_TOKEN', config('khqr.api_token'));
 
         if (blank($payment->khqr_md5)) {
@@ -99,6 +191,28 @@ class KHQRTuitionService
         }
 
         return (new BakongKHQR($token))->checkTransactionByMD5($payment->khqr_md5);
+    }
+
+    private function checkKhqrLinkPaymentStatus(Payment $payment): array
+    {
+        if (blank($payment->khqr_md5)) {
+            throw new \RuntimeException('Payment does not have a KHQR MD5 hash.');
+        }
+
+        $apiBase = rtrim($this->required('KHQR_LINK_API_BASE', data_get($payment->meta, 'khqr.raw_payload.api_base') ?: config('khqr.link_api_base')), '/');
+
+        $response = Http::timeout(15)
+            ->retry(2, 250)
+            ->acceptJson()
+            ->get($apiBase.'/v1/khqr/check', [
+                'md5' => $payment->khqr_md5,
+            ]);
+
+        if (! $response->successful()) {
+            throw new \RuntimeException($response->json('error') ?: 'KHQR Link check request failed.');
+        }
+
+        return $response->json();
     }
 
     public function hasExpired(Payment $payment): bool
@@ -127,6 +241,22 @@ class KHQRTuitionService
             ?? data_get($response, 'tran')
             ?? data_get($response, 'data.transactionHash')
             ?? 'KHQR-'.$payment->id;
+    }
+
+    private function usesKhqrLink(?Payment $payment = null): bool
+    {
+        if ($payment) {
+            $provider = data_get($payment->meta, 'khqr.provider');
+
+            if ($provider) {
+                return $provider === 'khqr_link';
+            }
+
+            return str_starts_with((string) $payment->khqr_payload, 'http://api.khqr.link/')
+                || str_starts_with((string) $payment->khqr_payload, 'https://api.khqr.link/');
+        }
+
+        return config('khqr.provider') === 'khqr_link';
     }
 
     private function purpose(Payment $payment): string
@@ -219,6 +349,11 @@ class KHQRTuitionService
         }
 
         return (float) number_format($amount, 2, '.', '');
+    }
+
+    private function numericReferenceId(Payment $payment): int
+    {
+        return (int) sprintf('%u', crc32((string) $payment->getKey()));
     }
 
     private function required(string $key, mixed $value): string

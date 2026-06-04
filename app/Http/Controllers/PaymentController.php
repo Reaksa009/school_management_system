@@ -104,6 +104,8 @@ class PaymentController extends Controller
                     'khqr_expires_at' => $request['expires_at'],
                     'meta' => [
                         'khqr' => [
+                            'provider' => $request['provider'],
+                            'display_type' => $request['display_type'],
                             'reference' => $request['reference'],
                             'credential' => $request['credential'],
                             'account_name' => $request['account_name'],

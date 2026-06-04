@@ -205,14 +205,32 @@
         <script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"></script>
         <script>
             window.addEventListener('DOMContentLoaded', () => {
+                const qrValue = @json($payment->khqr_payload);
+                const qrDisplayType = @json(data_get($payment->meta, 'khqr.display_type', 'payload'));
                 const renderQr = (id, size) => {
                     const target = document.getElementById(id);
-                    if (! target || ! window.QRCode) {
+                    if (! target || ! qrValue) {
                         return;
                     }
                     target.innerHTML = '';
+
+                    if (qrDisplayType === 'image_url' || /^https?:\/\//i.test(qrValue)) {
+                        const image = document.createElement('img');
+                        image.src = qrValue;
+                        image.alt = 'KHQR';
+                        image.width = size;
+                        image.height = size;
+                        image.loading = 'eager';
+                        target.appendChild(image);
+                        return;
+                    }
+
+                    if (! window.QRCode) {
+                        return;
+                    }
+
                     new QRCode(target, {
-                        text: @json($payment->khqr_payload),
+                        text: qrValue,
                         width: size,
                         height: size,
                         colorDark: '#111827',
