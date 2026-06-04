@@ -19,10 +19,18 @@ use Illuminate\Support\Facades\Route;
 Route::redirect('/', '/dashboard');
 
 if (env('SEED_TOKEN')) {
-    Route::post('/setup/db-check', function (Request $request) {
+    Route::post('/setup/ping', function (Request $request) {
         abort_unless(hash_equals((string) env('SEED_TOKEN'), (string) $request->bearerToken()), 404);
 
+        return response()->json([
+            'message' => 'Setup route ok.',
+        ]);
+    });
+
+    Route::post('/setup/db-check', function (Request $request) {
         try {
+            abort_unless(hash_equals((string) env('SEED_TOKEN'), (string) $request->bearerToken()), 404);
+
             $client = new \MongoDB\Client((string) env('DB_URI', env('MONGODB_URI')), [
                 'connectTimeoutMS' => 5000,
                 'serverSelectionTimeoutMS' => 5000,
@@ -31,11 +39,11 @@ if (env('SEED_TOKEN')) {
                 ->command(['ping' => 1])
                 ->toArray();
         } catch (\Throwable $exception) {
-            return response()->json([
+            return response(json_encode([
                 'message' => 'MongoDB check failed.',
                 'error' => $exception::class,
                 'detail' => $exception->getMessage(),
-            ], 500);
+            ], JSON_INVALID_UTF8_SUBSTITUTE), 500)->header('Content-Type', 'application/json');
         }
 
         return response()->json([
@@ -45,18 +53,16 @@ if (env('SEED_TOKEN')) {
     });
 
     Route::post('/setup/seed', function (Request $request) {
-        abort_unless(hash_equals((string) env('SEED_TOKEN'), (string) $request->bearerToken()), 404);
-
         try {
+            abort_unless(hash_equals((string) env('SEED_TOKEN'), (string) $request->bearerToken()), 404);
+
             Artisan::call('db:seed', ['--force' => true]);
         } catch (\Throwable $exception) {
-            report($exception);
-
-            return response()->json([
+            return response(json_encode([
                 'message' => 'Database seed failed.',
                 'error' => $exception::class,
                 'detail' => $exception->getMessage(),
-            ], 500);
+            ], JSON_INVALID_UTF8_SUBSTITUTE), 500)->header('Content-Type', 'application/json');
         }
 
         return response()->json([
