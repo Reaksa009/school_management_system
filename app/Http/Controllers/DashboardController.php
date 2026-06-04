@@ -37,6 +37,17 @@ class DashboardController extends Controller
         $today = Carbon::today();
         $monthStart = Carbon::now()->startOfMonth();
         $monthEnd = Carbon::now()->endOfMonth();
+        $monthlyIncome = Payment::where('status', 'paid')
+            ->where('payment_date', '>=', $monthStart)
+            ->where('payment_date', '<=', $monthEnd)
+            ->get()
+            ->sum(fn (Payment $payment) => (float) $payment->amount);
+
+        $attendanceToday = Attendance::where('attendance_date', '>=', $today->copy()->startOfDay())
+            ->where('attendance_date', '<=', $today->copy()->endOfDay())
+            ->get()
+            ->groupBy('status')
+            ->map->count();
 
         return view('dashboard', [
             'stats' => [
@@ -45,14 +56,9 @@ class DashboardController extends Controller
                 'classes' => ClassRoom::count(),
                 'subjects' => Subject::count(),
                 'users' => User::count(),
-                'monthly_income' => Payment::where('status', 'paid')
-                    ->whereBetween('payment_date', [$monthStart, $monthEnd])
-                    ->sum('amount'),
+                'monthly_income' => $monthlyIncome,
             ],
-            'attendanceToday' => Attendance::whereDate('attendance_date', $today)
-                ->selectRaw('status, count(*) as total')
-                ->groupBy('status')
-                ->pluck('total', 'status'),
+            'attendanceToday' => $attendanceToday,
             'latestPayments' => Payment::with('student')->latest('payment_date')->limit(5)->get(),
             'latestAttendances' => Attendance::with(['student', 'classRoom', 'subject'])->latest('attendance_date')->limit(5)->get(),
             'latestScores' => Score::with(['student', 'exam.subject'])->latest()->limit(5)->get(),
