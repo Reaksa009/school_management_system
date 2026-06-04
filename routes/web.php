@@ -22,7 +22,17 @@ if (env('SEED_TOKEN')) {
     Route::post('/setup/seed', function (Request $request) {
         abort_unless(hash_equals((string) env('SEED_TOKEN'), (string) $request->bearerToken()), 404);
 
-        Artisan::call('db:seed', ['--force' => true]);
+        try {
+            Artisan::call('db:seed', ['--force' => true]);
+        } catch (\Throwable $exception) {
+            report($exception);
+
+            return response()->json([
+                'message' => 'Database seed failed.',
+                'error' => $exception::class,
+                'detail' => $exception->getMessage(),
+            ], 500);
+        }
 
         return response()->json([
             'message' => 'Database seeded.',
