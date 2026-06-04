@@ -223,13 +223,15 @@ class KHQRTuitionService
 
     public function isPaidResponse(array $response): bool
     {
-        if (($response['responseCode'] ?? null) !== 0) {
-            return false;
-        }
+        $verified = filter_var($response['verified'] ?? false, FILTER_VALIDATE_BOOLEAN);
+        $status = strtoupper((string) ($response['status'] ?? ''));
 
         if (array_key_exists('verified', $response)) {
-            return ($response['verified'] ?? false) === true
-                && strtoupper((string) ($response['status'] ?? '')) === 'COMPLETED';
+            return $verified && $status === 'COMPLETED';
+        }
+
+        if (array_key_exists('responseCode', $response)) {
+            return (string) $response['responseCode'] === '0';
         }
 
         return true;

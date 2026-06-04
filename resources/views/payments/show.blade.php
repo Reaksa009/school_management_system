@@ -34,6 +34,8 @@
     <button class="btn secondary" onclick="window.print()"><i data-lucide="printer"></i> បោះពុម្ព/PDF</button>
     @if ($khqrActive)
         <button class="btn warning" type="button" id="open-khqr-modal"><i data-lucide="qr-code"></i> បង្ហាញ KHQR</button>
+    @endif
+    @if ($payment->isKhqr() && $payment->status === 'pending')
         <form method="POST" action="{{ route('payments.khqr.check', $payment) }}">
             @csrf
             <button class="btn warning" type="submit"><i data-lucide="refresh-cw"></i> ពិនិត្យ Bakong</button>

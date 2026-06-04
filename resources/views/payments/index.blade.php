@@ -81,7 +81,7 @@
                         <td>
                             <div class="actions-row">
                                 <a class="icon-btn" href="{{ route('payments.show', $payment) }}" title="បង្កាន់ដៃ"><i data-lucide="receipt"></i></a>
-                                @if ($payment->isKhqr() && $payment->status === 'pending' && ! $isExpiredKhqr)
+                                @if ($payment->isKhqr() && $payment->status === 'pending')
                                     <form method="POST" action="{{ route('payments.khqr.check', $payment) }}">
                                         @csrf
                                         <button class="icon-btn" type="submit" title="ពិនិត្យ Bakong"><i data-lucide="refresh-cw"></i></button>

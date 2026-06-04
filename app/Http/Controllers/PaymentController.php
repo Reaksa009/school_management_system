@@ -156,25 +156,7 @@ class PaymentController extends Controller
             return back()->with('success', 'ការបង់ប្រាក់នេះបានបញ្ជាក់រួចហើយ។');
         }
 
-        if ($khqr->hasExpired($payment)) {
-            $payment->update([
-                'status' => 'expired',
-                'verification_status' => 'expired',
-                'verification_error' => 'KHQR expired before Bakong confirmation.',
-                'meta' => array_merge($payment->meta ?? [], [
-                    'expired_at' => now()->toDateTimeString(),
-                ]),
-            ]);
-
-            if ($request->expectsJson()) {
-                return response()->json([
-                    'status' => 'expired',
-                    'message' => 'KHQR expired. Please create a new QR.',
-                ], 410);
-            }
-
-            return back()->withErrors(['khqr' => 'KHQR នេះផុតកំណត់ហើយ។ សូមបង្កើត QR ថ្មី។']);
-        }
+        $expired = $khqr->hasExpired($payment);
 
         try {
             $response = $khqr->checkPaymentStatus($payment);
@@ -193,6 +175,28 @@ class PaymentController extends Controller
         }
 
         if (! $khqr->isPaidResponse($response)) {
+            if ($expired) {
+                $payment->update([
+                    'status' => 'expired',
+                    'verification_status' => 'expired',
+                    'verification_error' => $response['responseMessage'] ?? 'KHQR expired before Bakong confirmation.',
+                    'meta' => array_merge($payment->meta ?? [], [
+                        'expired_at' => now()->toDateTimeString(),
+                        'last_khqr_check' => $response,
+                    ]),
+                ]);
+
+                if ($request->expectsJson()) {
+                    return response()->json([
+                        'status' => 'expired',
+                        'message' => 'KHQR expired. Please create a new QR.',
+                        'response' => $response,
+                    ], 410);
+                }
+
+                return back()->withErrors(['khqr' => 'KHQR expired. Please create a new QR.']);
+            }
+
             $payment->update([
                 'verification_status' => 'pending',
                 'verification_error' => $response['responseMessage'] ?? 'Pending',
