@@ -253,6 +253,29 @@ class KHQRTuitionService
         return $payment->khqr_expires_at !== null && now()->greaterThan($payment->khqr_expires_at);
     }
 
+    public function verificationGraceEndsAt(Payment $payment): ?CarbonInterface
+    {
+        if ($payment->khqr_expires_at === null) {
+            return null;
+        }
+
+        return $payment->khqr_expires_at->copy()->addSeconds($this->verificationGraceSeconds());
+    }
+
+    public function hasVerificationGraceExpired(Payment $payment): bool
+    {
+        $endsAt = $this->verificationGraceEndsAt($payment);
+
+        return $endsAt !== null && now()->greaterThan($endsAt);
+    }
+
+    private function verificationGraceSeconds(): int
+    {
+        $seconds = (int) config('khqr.verification_grace_seconds', 120);
+
+        return max(0, min($seconds, 600));
+    }
+
     public function isPaidResponse(array $response): bool
     {
         $verified = filter_var($response['verified'] ?? false, FILTER_VALIDATE_BOOLEAN);

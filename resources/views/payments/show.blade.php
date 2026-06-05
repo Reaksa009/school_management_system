@@ -28,6 +28,14 @@
         default => 'clock-3',
     };
     $currency = config('khqr.currency', 'USD');
+    $khqrVerificationGraceSeconds = max(0, min((int) config('khqr.verification_grace_seconds', 120), 600));
+    $khqrVerificationGraceEndsAt = $payment->khqr_expires_at
+        ? $payment->khqr_expires_at->copy()->addSeconds($khqrVerificationGraceSeconds)
+        : null;
+    $khqrCanAutoVerify = $payment->isKhqr()
+        && $payment->status !== 'paid'
+        && $khqrVerificationGraceEndsAt
+        && now()->lessThan($khqrVerificationGraceEndsAt);
     $feeTypeLabel = \App\Http\Controllers\PaymentController::feeTypes()[$payment->fee_type] ?? $payment->fee_type;
     $methodLabel = \App\Http\Controllers\PaymentController::methods()[$payment->method] ?? $payment->method;
     $showPaymentSuccessPopup = $payment->status === 'paid'
@@ -289,34 +297,45 @@
                 const countdowns = document.querySelectorAll('[data-khqr-countdown]');
                 const firstCountdown = countdowns[0];
                 const expiresAt = firstCountdown ? new Date(firstCountdown.dataset.expires).getTime() : 0;
+                const verifyUntilValue = @json($khqrVerificationGraceEndsAt?->toIso8601String());
+                const verifyUntilAt = verifyUntilValue ? new Date(verifyUntilValue).getTime() : expiresAt;
+                let finalCheckStarted = false;
+                let reloading = false;
+                const reloadOnce = () => {
+                    if (reloading) {
+                        return;
+                    }
+
+                    reloading = true;
+                    window.location.reload();
+                };
                 const tick = () => {
-                    const seconds = Math.max(0, Math.floor((expiresAt - Date.now()) / 1000));
+                    const now = Date.now();
+                    const seconds = Math.max(0, Math.floor((expiresAt - now) / 1000));
                     const minutes = String(Math.floor(seconds / 60)).padStart(2, '0');
                     const remainder = String(seconds % 60).padStart(2, '0');
                     countdowns.forEach((countdown) => {
                         countdown.textContent = `${minutes}:${remainder}`;
                     });
-                    if (seconds <= 0) {
-                        window.location.reload();
+                    if (seconds <= 0 && verifyUntilAt && now >= verifyUntilAt && ! finalCheckStarted) {
+                        finalCheckStarted = true;
+                        checkPayment({ allowAfterGrace: true, reloadIfUnpaid: true });
                     }
                 };
-                if (countdowns.length && expiresAt) {
-                    tick();
-                    setInterval(tick, 1000);
-                }
-
                 const statusText = document.getElementById('khqr-poll-status');
                 const modalStatus = document.getElementById('khqr-modal-status');
-                const checkPayment = async () => {
-                    if (Date.now() >= expiresAt) {
+                const checkPayment = async (options = {}) => {
+                    if (! options.allowAfterGrace && verifyUntilAt && Date.now() >= verifyUntilAt) {
                         return;
                     }
 
                     try {
                         const response = await fetch(@json(route('payments.khqr.check', $payment)), {
                             method: 'POST',
+                            credentials: 'same-origin',
                             headers: {
                                 'Accept': 'application/json',
+                                'X-Requested-With': 'XMLHttpRequest',
                                 'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content
                             }
                         });
@@ -336,7 +355,20 @@
                         }
 
                         if (data.status === 'expired') {
-                            window.location.reload();
+                            reloadOnce();
+                            return;
+                        }
+
+                        if (data.qr_expired) {
+                            if (statusText) {
+                                statusText.textContent = 'QR expired. Waiting for MD5 confirmation...';
+                            }
+                            if (modalStatus) {
+                                modalStatus.textContent = 'Checking MD5';
+                            }
+                            if (options.reloadIfUnpaid) {
+                                reloadOnce();
+                            }
                             return;
                         }
 
@@ -346,15 +378,76 @@
                         if (modalStatus) {
                             modalStatus.textContent = 'កំពុងរង់ចាំ';
                         }
+                        if (options.reloadIfUnpaid) {
+                            reloadOnce();
+                        }
                     } catch (error) {
                         if (statusText) {
                             statusText.textContent = 'កំពុងរង់ចាំការបញ្ជាក់ពី Bakong...';
                         }
+                        if (options.reloadIfUnpaid) {
+                            reloadOnce();
+                        }
+                    }
+                };
+
+                if (countdowns.length && expiresAt) {
+                    tick();
+                    setInterval(tick, 1000);
+                }
+
+                checkPayment();
+                setInterval(checkPayment, 5000);
+            });
+        </script>
+    @endif
+    @if (! $khqrActive && $khqrCanAutoVerify)
+        <script>
+            window.addEventListener('DOMContentLoaded', () => {
+                const verifyUntilValue = @json($khqrVerificationGraceEndsAt?->toIso8601String());
+                const verifyUntilAt = verifyUntilValue ? new Date(verifyUntilValue).getTime() : 0;
+                let timer = null;
+
+                const redirectToReceipt = (receiptUrl) => {
+                    const target = receiptUrl || window.location.href;
+                    const separator = target.includes('?') ? '&' : '?';
+                    window.location.href = `${target}${separator}payment_success=1`;
+                };
+
+                const checkPayment = async () => {
+                    if (verifyUntilAt && Date.now() >= verifyUntilAt) {
+                        if (timer) {
+                            clearInterval(timer);
+                        }
+                        return;
+                    }
+
+                    try {
+                        const response = await fetch(@json(route('payments.khqr.check', $payment)), {
+                            method: 'POST',
+                            credentials: 'same-origin',
+                            headers: {
+                                'Accept': 'application/json',
+                                'X-Requested-With': 'XMLHttpRequest',
+                                'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content
+                            }
+                        });
+                        const data = await response.json();
+
+                        if (data.status === 'paid') {
+                            redirectToReceipt(data.receipt_url);
+                            return;
+                        }
+
+                        if (data.status === 'expired' && timer) {
+                            clearInterval(timer);
+                        }
+                    } catch (error) {
                     }
                 };
 
                 checkPayment();
-                setInterval(checkPayment, 5000);
+                timer = setInterval(checkPayment, 5000);
             });
         </script>
     @endif

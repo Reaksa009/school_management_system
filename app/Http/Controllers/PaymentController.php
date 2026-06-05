@@ -157,6 +157,8 @@ class PaymentController extends Controller
         }
 
         $expired = $khqr->hasExpired($payment);
+        $verificationGraceExpired = $khqr->hasVerificationGraceExpired($payment);
+        $verificationGraceEndsAt = $khqr->verificationGraceEndsAt($payment);
 
         try {
             $response = $khqr->checkPaymentStatus($payment);
@@ -175,7 +177,7 @@ class PaymentController extends Controller
         }
 
         if (! $khqr->isPaidResponse($response)) {
-            if ($expired) {
+            if ($expired && $verificationGraceExpired) {
                 $payment->update([
                     'status' => 'expired',
                     'verification_status' => 'expired',
@@ -197,9 +199,13 @@ class PaymentController extends Controller
                 return back()->withErrors(['khqr' => 'KHQR expired. Please create a new QR.']);
             }
 
+            $pendingMessage = $expired
+                ? 'QR expired. Waiting for MD5 confirmation.'
+                : ($response['responseMessage'] ?? 'Payment is still pending.');
+
             $payment->update([
                 'verification_status' => 'pending',
-                'verification_error' => $response['responseMessage'] ?? 'Pending',
+                'verification_error' => $pendingMessage,
                 'meta' => array_merge($payment->meta ?? [], ['last_khqr_check' => $response]),
             ]);
 
@@ -207,7 +213,9 @@ class PaymentController extends Controller
                 return response()->json([
                     'status' => 'pending',
                     'verification_status' => 'pending',
-                    'message' => $response['responseMessage'] ?? 'Payment is still pending.',
+                    'message' => $pendingMessage,
+                    'qr_expired' => $expired,
+                    'verify_until' => $verificationGraceEndsAt?->toIso8601String(),
                     'response' => $response,
                 ], 202);
             }
