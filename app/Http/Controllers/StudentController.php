@@ -194,7 +194,7 @@ class StudentController extends Controller
         return $request->validate([
             'user_id' => ['nullable', new ExistsModel(User::class)],
             'class_id' => ['nullable', new ExistsModel(ClassRoom::class)],
-            'student_code' => ['required', 'max:50', Rule::unique('students', 'student_code')->ignore($student?->getKey(), '_id')],
+            'student_code' => ['required', 'max:50', Rule::unique('students', 'student_code')->ignore($student?->getKey(), (new Student())->getKeyName())],
             'first_name' => ['required', 'max:255'],
             'last_name' => ['required', 'max:255'],
             'gender' => ['nullable', 'max:20'],
@@ -281,14 +281,14 @@ class StudentController extends Controller
         ];
     }
 
-    private function resolveClassId(array $data): string|false|null
+    private function resolveClassId(array $data): int|string|null
     {
         if ($data['class_id']) {
             return $data['class_id'];
         }
 
         if ($data['class_name']) {
-            return ClassRoom::where('name', $data['class_name'])->value('id') ?: false;
+            return ClassRoom::firstOrCreate(['name' => $data['class_name']])->getKey();
         }
 
         return null;

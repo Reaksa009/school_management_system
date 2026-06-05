@@ -76,7 +76,7 @@ class SubjectController extends Controller
         return $request->validate([
             'class_id' => ['nullable', new ExistsModel(ClassRoom::class)],
             'teacher_id' => ['nullable', new ExistsModel(Teacher::class)],
-            'code' => ['required', 'max:50', Rule::unique('subjects', 'code')->ignore($subject?->getKey(), '_id')],
+            'code' => ['required', 'max:50', Rule::unique('subjects', 'code')->ignore($subject?->getKey(), (new Subject())->getKeyName())],
             'name' => ['required', 'max:255'],
             'credit_hours' => ['required', 'integer', 'min:1', 'max:20'],
             'description' => ['nullable'],

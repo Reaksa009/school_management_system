@@ -71,7 +71,7 @@ class UserController extends Controller
     {
         return $request->validate([
             'name' => ['required', 'max:255'],
-            'email' => ['required', 'email', 'max:255', Rule::unique('users', 'email')->ignore($user?->getKey(), '_id')],
+            'email' => ['required', 'email', 'max:255', Rule::unique('users', 'email')->ignore($user?->getKey(), (new User())->getKeyName())],
             'role' => ['required', Rule::in(array_keys($this->roles()))],
             'phone' => ['nullable', 'max:50'],
             'password' => [$user ? 'nullable' : 'required', 'min:6'],

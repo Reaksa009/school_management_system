@@ -36,10 +36,13 @@
         && $payment->status !== 'paid'
         && $khqrVerificationGraceEndsAt
         && now()->lessThan($khqrVerificationGraceEndsAt);
+    $recentlyVerifiedPayment = $payment->status === 'paid'
+        && $payment->verified_at
+        && $payment->verified_at->greaterThan(now()->subMinutes(5));
     $feeTypeLabel = \App\Http\Controllers\PaymentController::feeTypes()[$payment->fee_type] ?? $payment->fee_type;
     $methodLabel = \App\Http\Controllers\PaymentController::methods()[$payment->method] ?? $payment->method;
     $showPaymentSuccessPopup = $payment->status === 'paid'
-        && (session('success') || request()->boolean('payment_success'));
+        && (session('success') || request()->boolean('payment_success') || $recentlyVerifiedPayment);
 @endphp
 
 @section('actions')

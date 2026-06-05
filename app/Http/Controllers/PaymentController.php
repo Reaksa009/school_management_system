@@ -398,7 +398,7 @@ class PaymentController extends Controller
     {
         return $request->validate([
             'student_id' => ['required', new ExistsModel(Student::class)],
-            'receipt_no' => ['required', 'max:100', Rule::unique('payments', 'receipt_no')->ignore($payment?->getKey(), '_id')],
+            'receipt_no' => ['required', 'max:100', Rule::unique('payments', 'receipt_no')->ignore($payment?->getKey(), (new Payment())->getKeyName())],
             'payment_date' => ['required', 'date'],
             'amount' => ['required', 'numeric', 'min:0'],
             'method' => ['required', Rule::in(array_keys(self::methods()))],

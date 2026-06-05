@@ -77,7 +77,7 @@ class ClassRoomController extends Controller
                     ->where(fn ($query) => $query
                         ->where('section', $request->section)
                         ->where('academic_year', $request->academic_year))
-                    ->ignore($classRoom?->getKey(), '_id'),
+                    ->ignore($classRoom?->getKey(), (new ClassRoom())->getKeyName()),
             ],
             'section' => ['nullable', 'max:50'],
             'academic_year' => ['nullable', 'max:50'],

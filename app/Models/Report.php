@@ -2,7 +2,7 @@
 
 namespace App\Models;
 
-use MongoDB\Laravel\Eloquent\Model;
+use App\Models\BaseModel as Model;
 
 class Report extends Model
 {

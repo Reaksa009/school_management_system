@@ -167,6 +167,7 @@ class ExampleTest extends TestCase
         $this->seed();
 
         config([
+            'khqr.provider' => 'khqr',
             'khqr.bakong_account_id' => 'vuthy_reaksa@bkrt',
             'khqr.account_name' => 'VUTHY REAKSA',
             'khqr.merchant_city' => 'PHNOM PENH',

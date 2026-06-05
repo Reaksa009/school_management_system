@@ -121,7 +121,7 @@ class KHQRTuitionService
         ];
 
         $response = Http::timeout(15)
-            ->retry(2, 250)
+            ->retry(2, 250, throw: false)
             ->acceptJson()
             ->get($apiBase.'/v1/khqr/create', [
                 'amount' => $this->formatAmount((float) $payment->amount, $this->currencyCode($currency)),
@@ -197,24 +197,28 @@ class KHQRTuitionService
         $apiBase = rtrim($this->required('KHQR_LINK_API_BASE', data_get($payment->meta, 'khqr.raw_payload.api_base') ?: config('khqr.link_api_base')), '/');
 
         $response = Http::timeout(15)
-            ->retry(2, 250)
+            ->retry(2, 250, throw: false)
             ->acceptJson()
             ->get($apiBase.'/v1/khqr/check', [
                 'md5' => $payment->khqr_md5,
             ]);
 
-        if (! $response->successful()) {
-            throw new \RuntimeException($response->json('error') ?: 'KHQR Link check request failed.');
+        $linkResponse = $response->json() ?: [
+            'responseCode' => $response->status(),
+            'responseMessage' => 'KHQR Link check request failed.',
+            'status' => 'ERROR',
+        ];
+
+        if ($response->successful() && ($this->isPaidResponse($linkResponse) || ! $this->shouldUseBakongFallback())) {
+            return $linkResponse;
         }
 
-        $linkResponse = $response->json();
-
-        if (
-            $this->isPaidResponse($linkResponse)
-            || ! (bool) config('khqr.bakong_fallback', false)
-            || blank(config('khqr.api_token'))
-        ) {
-            return $linkResponse;
+        if (! $response->successful() && ! $this->shouldUseBakongFallback(force: true)) {
+            return array_merge($linkResponse, [
+                'responseMessage' => $linkResponse['responseMessage']
+                    ?? $linkResponse['error']
+                    ?? 'KHQR Link check request failed.',
+            ]);
         }
 
         try {
@@ -235,6 +239,15 @@ class KHQRTuitionService
         return array_merge($linkResponse, [
             'bakong_fallback_response' => $bakongResponse,
         ]);
+    }
+
+    private function shouldUseBakongFallback(bool $force = false): bool
+    {
+        if (blank(config('khqr.api_token'))) {
+            return false;
+        }
+
+        return $force || (bool) config('khqr.bakong_fallback', false);
     }
 
     private function checkBakongPaymentStatus(Payment $payment): array
@@ -417,7 +430,13 @@ class KHQRTuitionService
 
     private function numericReferenceId(Payment $payment): int
     {
-        return (int) sprintf('%u', crc32((string) $payment->getKey()));
+        $key = (string) $payment->getKey();
+
+        if (ctype_digit($key)) {
+            return max(1, min((int) $key, 2147483647));
+        }
+
+        return ((int) sprintf('%u', crc32($key)) % 2147483647) + 1;
     }
 
     private function secureQrUrl(string $url): string

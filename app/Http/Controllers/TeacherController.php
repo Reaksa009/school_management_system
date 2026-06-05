@@ -173,7 +173,7 @@ class TeacherController extends Controller
     {
         return $request->validate([
             'user_id' => ['nullable', new ExistsModel(User::class)],
-            'teacher_code' => ['required', 'max:50', Rule::unique('teachers', 'teacher_code')->ignore($teacher?->getKey(), '_id')],
+            'teacher_code' => ['required', 'max:50', Rule::unique('teachers', 'teacher_code')->ignore($teacher?->getKey(), (new Teacher())->getKeyName())],
             'first_name' => ['required', 'max:255'],
             'last_name' => ['required', 'max:255'],
             'gender' => ['nullable', 'max:20'],
