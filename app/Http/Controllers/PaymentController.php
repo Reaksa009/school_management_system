@@ -7,7 +7,6 @@ use App\Models\Student;
 use App\Rules\ExistsModel;
 use App\Services\KHQRTuitionService;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
 
 class PaymentController extends Controller
@@ -78,46 +77,54 @@ class PaymentController extends Controller
         $student = Student::findOrFail($data['student_id']);
         $this->abortIfParentCannotPayForStudent($student);
 
+        $payment = null;
+
         try {
-            $payment = DB::transaction(function () use ($data, $khqr) {
-                $payment = Payment::create([
-                    'student_id' => $data['student_id'],
-                    'recorded_by' => auth()->id(),
-                    'provider' => 'khqr',
-                    'receipt_no' => $this->nextKhqrReceipt(),
-                    'payment_date' => now()->toDateString(),
-                    'amount' => $data['amount'],
-                    'method' => 'khqr',
-                    'fee_type' => 'tuition',
-                    'billing_month' => $data['billing_month'] ?? now()->format('Y-m'),
-                    'status' => 'pending',
-                    'verification_status' => 'pending',
-                    'submitted_at' => now(),
-                    'note' => $data['note'] ?? null,
-                ]);
+            $payment = Payment::create([
+                'student_id' => $data['student_id'],
+                'recorded_by' => auth()->id(),
+                'provider' => 'khqr',
+                'receipt_no' => $this->nextKhqrReceipt(),
+                'payment_date' => now()->toDateString(),
+                'amount' => $data['amount'],
+                'method' => 'khqr',
+                'fee_type' => 'tuition',
+                'billing_month' => $data['billing_month'] ?? now()->format('Y-m'),
+                'status' => 'pending',
+                'verification_status' => 'pending',
+                'submitted_at' => now(),
+                'note' => $data['note'] ?? null,
+            ]);
 
-                $request = $khqr->createPaymentRequest($payment);
+            $request = $khqr->createPaymentRequest($payment);
 
-                $payment->update([
-                    'khqr_payload' => $request['qr_data'],
-                    'khqr_md5' => $request['md5'],
-                    'khqr_expires_at' => $request['expires_at'],
-                    'meta' => [
-                        'khqr' => [
-                            'provider' => $request['provider'],
-                            'display_type' => $request['display_type'],
-                            'reference' => $request['reference'],
-                            'credential' => $request['credential'],
-                            'account_name' => $request['account_name'],
-                            'merchant_city' => $request['merchant_city'],
-                            'raw_payload' => $request['raw_payload'],
-                        ],
+            $payment->update([
+                'khqr_payload' => $request['qr_data'],
+                'khqr_md5' => $request['md5'],
+                'khqr_expires_at' => $request['expires_at'],
+                'meta' => [
+                    'khqr' => [
+                        'provider' => $request['provider'],
+                        'display_type' => $request['display_type'],
+                        'reference' => $request['reference'],
+                        'credential' => $request['credential'],
+                        'account_name' => $request['account_name'],
+                        'merchant_city' => $request['merchant_city'],
+                        'raw_payload' => $request['raw_payload'],
                     ],
-                ]);
+                ],
+            ]);
 
-                return $payment->fresh(['student.classRoom', 'recorder']);
-            });
+            $payment = $payment->fresh(['student.classRoom', 'recorder']);
         } catch (\Throwable $e) {
+            if ($payment && blank($payment->khqr_md5)) {
+                $payment->delete();
+            }
+
+            logger()->error('KHQR payment creation failed.', [
+                'exception' => $e::class,
+                'message' => $e->getMessage(),
+            ]);
             report($e);
 
             return back()
