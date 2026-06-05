@@ -91,7 +91,6 @@ Route::middleware('auth')->group(function () {
 
     Route::middleware('role:admin,teacher,student,student_parent')->group(function () {
         Route::get('/students', [StudentController::class, 'index'])->name('students.index');
-        Route::get('/students/{student}', [StudentController::class, 'show'])->name('students.show');
         Route::get('/attendances', [AttendanceController::class, 'index'])->name('attendances.index');
     });
 
@@ -105,9 +104,12 @@ Route::middleware('auth')->group(function () {
         Route::delete('/students/{student}', [StudentController::class, 'destroy'])->name('students.destroy');
     });
 
+    Route::middleware('role:admin,teacher,student,student_parent')->group(function () {
+        Route::get('/students/{student}', [StudentController::class, 'show'])->name('students.show');
+    });
+
     Route::middleware('role:admin,teacher')->group(function () {
         Route::get('/teachers', [TeacherController::class, 'index'])->name('teachers.index');
-        Route::get('/teachers/{teacher}', [TeacherController::class, 'show'])->name('teachers.show');
         Route::get('/classes', [ClassRoomController::class, 'index'])->name('classes.index');
         Route::get('/subjects', [SubjectController::class, 'index'])->name('subjects.index');
         Route::get('/attendances/create', [AttendanceController::class, 'create'])->name('attendances.create');
@@ -150,10 +152,13 @@ Route::middleware('auth')->group(function () {
         Route::resource('users', UserController::class)->except('show');
     });
 
+    Route::middleware('role:admin,teacher')->group(function () {
+        Route::get('/teachers/{teacher}', [TeacherController::class, 'show'])->name('teachers.show');
+    });
+
     Route::middleware('role:admin,accountant,student,student_parent')->group(function () {
         Route::get('/payments', [PaymentController::class, 'index'])->name('payments.index');
         Route::post('/payments/{payment}/khqr/check', [PaymentController::class, 'checkKhqr'])->name('payments.khqr.check');
-        Route::get('/payments/{payment}', [PaymentController::class, 'show'])->name('payments.show');
     });
 
     Route::middleware('role:admin,accountant,student_parent')->group(function () {
@@ -168,6 +173,10 @@ Route::middleware('auth')->group(function () {
         Route::put('/payments/{payment}', [PaymentController::class, 'update'])->name('payments.update');
         Route::post('/payments/{payment}/confirm', [PaymentController::class, 'confirm'])->name('payments.confirm');
         Route::delete('/payments/{payment}', [PaymentController::class, 'destroy'])->name('payments.destroy');
+    });
+
+    Route::middleware('role:admin,accountant,student,student_parent')->group(function () {
+        Route::get('/payments/{payment}', [PaymentController::class, 'show'])->name('payments.show');
     });
 
     Route::middleware('role:admin,teacher,accountant,student,student_parent')->group(function () {
