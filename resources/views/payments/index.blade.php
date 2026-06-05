@@ -60,9 +60,14 @@
                 @forelse ($payments as $payment)
                     @php
                         $isExpiredKhqr = $payment->isKhqr()
-                            && $payment->status === 'pending'
-                            && $payment->khqr_expires_at
-                            && now()->greaterThan($payment->khqr_expires_at);
+                            && ($payment->status === 'expired'
+                                || ($payment->status === 'pending'
+                                    && $payment->khqr_expires_at
+                                    && now()->greaterThan($payment->khqr_expires_at)));
+                        $canRegenerateKhqr = auth()->user()->hasAnyRole(['admin', 'accountant', 'student_parent'])
+                            && $payment->isKhqr()
+                            && $payment->status !== 'paid'
+                            && $isExpiredKhqr;
                         $displayStatus = $isExpiredKhqr ? 'expired' : $payment->status;
                     @endphp
                     <tr>
@@ -85,6 +90,12 @@
                                     <form method="POST" action="{{ route('payments.khqr.check', $payment) }}">
                                         @csrf
                                         <button class="icon-btn" type="submit" title="ពិនិត្យ Bakong"><i data-lucide="refresh-cw"></i></button>
+                                    </form>
+                                @endif
+                                @if ($canRegenerateKhqr)
+                                    <form method="POST" action="{{ route('payments.khqr.regenerate', $payment) }}">
+                                        @csrf
+                                        <button class="icon-btn" type="submit" title="Generate new QR"><i data-lucide="rotate-cw"></i></button>
                                     </form>
                                 @endif
                                 @if (auth()->user()->hasAnyRole(['admin', 'accountant']))

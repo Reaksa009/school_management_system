@@ -5,20 +5,24 @@
 
 @php
     $khqrExpired = $payment->isKhqr()
-        && $payment->status === 'pending'
-        && $payment->khqr_expires_at
-        && now()->greaterThan($payment->khqr_expires_at);
+        && ($payment->status === 'expired'
+            || ($payment->status === 'pending' && $payment->khqr_expires_at && now()->greaterThan($payment->khqr_expires_at)));
     $khqrActive = $payment->isKhqr()
         && $payment->khqr_payload
         && $payment->status === 'pending'
         && ! $khqrExpired;
-    $statusLabel = \App\Http\Controllers\PaymentController::statuses()[$payment->status] ?? $payment->status;
-    $statusClass = match ($payment->status) {
+    $khqrNeedsRegeneration = auth()->user()->hasAnyRole(['admin', 'accountant', 'student_parent'])
+        && $payment->isKhqr()
+        && $payment->status !== 'paid'
+        && $khqrExpired;
+    $displayStatus = $khqrExpired ? 'expired' : $payment->status;
+    $statusLabel = \App\Http\Controllers\PaymentController::statuses()[$displayStatus] ?? $displayStatus;
+    $statusClass = match ($displayStatus) {
         'paid' => 'success',
         'expired' => 'danger',
         default => 'warning',
     };
-    $statusIcon = match ($payment->status) {
+    $statusIcon = match ($displayStatus) {
         'paid' => 'check-circle-2',
         'expired' => 'timer-off',
         default => 'clock-3',
@@ -39,6 +43,12 @@
         <form method="POST" action="{{ route('payments.khqr.check', $payment) }}">
             @csrf
             <button class="btn warning" type="submit"><i data-lucide="refresh-cw"></i> ពិនិត្យ Bakong</button>
+        </form>
+    @endif
+    @if ($khqrNeedsRegeneration)
+        <form method="POST" action="{{ route('payments.khqr.regenerate', $payment) }}">
+            @csrf
+            <button class="btn warning" type="submit"><i data-lucide="rotate-cw"></i> Generate new QR</button>
         </form>
     @endif
     @if (auth()->user()->hasAnyRole(['admin', 'accountant']) && $payment->status !== 'paid')

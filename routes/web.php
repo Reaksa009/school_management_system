@@ -15,6 +15,7 @@ use App\Http\Controllers\UserController;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Route;
+use MongoDB\Client;
 
 Route::redirect('/', '/dashboard');
 
@@ -37,7 +38,7 @@ if (env('SEED_TOKEN')) {
         abort_unless(hash_equals((string) env('SEED_TOKEN'), $setupToken($request)), 404);
 
         try {
-            $client = new \MongoDB\Client((string) env('DB_URI', env('MONGODB_URI')), [
+            $client = new Client((string) env('DB_URI', env('MONGODB_URI')), [
                 'connectTimeoutMS' => 5000,
                 'serverSelectionTimeoutMS' => 5000,
             ]);
@@ -164,6 +165,7 @@ Route::middleware('auth')->group(function () {
     Route::middleware('role:admin,accountant,student_parent')->group(function () {
         Route::get('/payments/khqr/create', [PaymentController::class, 'createKhqr'])->name('payments.khqr.create');
         Route::post('/payments/khqr', [PaymentController::class, 'storeKhqr'])->name('payments.khqr.store');
+        Route::post('/payments/{payment}/khqr/regenerate', [PaymentController::class, 'regenerateKhqr'])->name('payments.khqr.regenerate');
     });
 
     Route::middleware('role:admin,accountant')->group(function () {

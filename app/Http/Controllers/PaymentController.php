@@ -241,6 +241,75 @@ class PaymentController extends Controller
         return redirect()->route('payments.show', $payment)->with('success', 'Bakong បានបញ្ជាក់ការបង់ KHQR ជោគជ័យ។');
     }
 
+    public function regenerateKhqr(Request $request, Payment $payment, KHQRTuitionService $khqr)
+    {
+        $this->abortIfParentCannotView($payment);
+
+        if (! $payment->isKhqr()) {
+            return back()->withErrors(['khqr' => 'This payment is not KHQR.']);
+        }
+
+        if ($payment->status === 'paid') {
+            return back()->withErrors(['khqr' => 'Paid payments cannot regenerate KHQR.']);
+        }
+
+        try {
+            $khqrRequest = $khqr->createPaymentRequest($payment);
+            $existingMeta = $payment->meta ?? [];
+            $regenerationCount = (int) data_get($existingMeta, 'khqr.regeneration_count', 0) + 1;
+            $previousExpiresAt = $payment->khqr_expires_at?->toIso8601String();
+
+            $payment->update([
+                'status' => 'pending',
+                'verification_status' => 'pending',
+                'verification_error' => null,
+                'khqr_payload' => $khqrRequest['qr_data'],
+                'khqr_md5' => $khqrRequest['md5'],
+                'khqr_expires_at' => $khqrRequest['expires_at'],
+                'submitted_at' => now(),
+                'meta' => array_merge($existingMeta, [
+                    'expired_at' => null,
+                    'last_khqr_check' => null,
+                    'khqr' => [
+                        'provider' => $khqrRequest['provider'],
+                        'display_type' => $khqrRequest['display_type'],
+                        'reference' => $khqrRequest['reference'],
+                        'credential' => $khqrRequest['credential'],
+                        'account_name' => $khqrRequest['account_name'],
+                        'merchant_city' => $khqrRequest['merchant_city'],
+                        'raw_payload' => $khqrRequest['raw_payload'],
+                        'regeneration_count' => $regenerationCount,
+                        'regenerated_at' => now()->toDateTimeString(),
+                        'regenerated_by' => auth()->id(),
+                        'previous_expires_at' => $previousExpiresAt,
+                    ],
+                ]),
+            ]);
+        } catch (\Throwable $e) {
+            report($e);
+
+            if ($request->expectsJson()) {
+                return response()->json([
+                    'status' => 'error',
+                    'message' => 'Unable to regenerate KHQR.',
+                ], 422);
+            }
+
+            return back()->withErrors(['khqr' => 'Unable to regenerate KHQR.']);
+        }
+
+        if ($request->expectsJson()) {
+            return response()->json([
+                'status' => 'pending',
+                'verification_status' => 'pending',
+                'expires_at' => $payment->fresh()->khqr_expires_at?->toIso8601String(),
+                'receipt_url' => route('payments.show', $payment),
+            ]);
+        }
+
+        return redirect()->route('payments.show', $payment)->with('success', 'Generated a new KHQR.');
+    }
+
     public function confirm(Payment $payment)
     {
         abort_unless(auth()->user()->hasAnyRole(['admin', 'accountant']), 403);
