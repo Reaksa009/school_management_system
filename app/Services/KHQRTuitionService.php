@@ -209,7 +209,11 @@ class KHQRTuitionService
 
         $linkResponse = $response->json();
 
-        if ($this->isPaidResponse($linkResponse) || blank(config('khqr.api_token'))) {
+        if (
+            $this->isPaidResponse($linkResponse)
+            || ! (bool) config('khqr.bakong_fallback', false)
+            || blank(config('khqr.api_token'))
+        ) {
             return $linkResponse;
         }
 
@@ -217,7 +221,7 @@ class KHQRTuitionService
             $bakongResponse = $this->checkBakongPaymentStatus($payment);
         } catch (\Throwable $exception) {
             return array_merge($linkResponse, [
-                'bakong_fallback_error' => $exception->getMessage(),
+                'bakong_fallback_error' => 'Bakong fallback unavailable.',
             ]);
         }
 
