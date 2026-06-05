@@ -7,6 +7,7 @@ use App\Models\Teacher;
 use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Hash;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 use Throwable;
@@ -38,9 +39,19 @@ class AuthController extends Controller
             'password' => ['required'],
         ]);
 
-        $credentials['is_active'] = true;
-
         try {
+            $user = User::where('email', $credentials['email'])->first();
+
+            if (! $user || ! Hash::check($credentials['password'], (string) $user->password)) {
+                return $this->invalidLogin($request);
+            }
+
+            if (! $user->is_active) {
+                return back()
+                    ->withInput($request->only('email', 'remember'))
+                    ->withErrors(['email' => 'Your account is waiting for admin approval. Please try again after it is activated.']);
+            }
+
             if (Auth::attempt($credentials, $request->boolean('remember'))) {
                 $request->session()->regenerate();
 
@@ -50,9 +61,7 @@ class AuthController extends Controller
             return $this->databaseUnavailable($request, $exception);
         }
 
-        return back()
-            ->withInput($request->only('email', 'remember'))
-            ->withErrors(['email' => 'The email or password is incorrect.']);
+        return $this->invalidLogin($request);
     }
 
     public function register(Request $request)
@@ -150,5 +159,12 @@ class AuthController extends Controller
         return back()
             ->withInput($request->except(['password', 'password_confirmation']))
             ->withErrors([$field => $message]);
+    }
+
+    private function invalidLogin(Request $request)
+    {
+        return back()
+            ->withInput($request->only('email', 'remember'))
+            ->withErrors(['email' => 'The email or password is incorrect.']);
     }
 }
