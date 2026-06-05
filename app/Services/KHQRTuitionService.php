@@ -185,13 +185,7 @@ class KHQRTuitionService
             return $this->checkKhqrLinkPaymentStatus($payment);
         }
 
-        $token = $this->required('KHQR_API_TOKEN', config('khqr.api_token'));
-
-        if (blank($payment->khqr_md5)) {
-            throw new \RuntimeException('Payment does not have a KHQR MD5 hash.');
-        }
-
-        return (new BakongKHQR($token))->checkTransactionByMD5($payment->khqr_md5);
+        return $this->checkBakongPaymentStatus($payment);
     }
 
     private function checkKhqrLinkPaymentStatus(Payment $payment): array
@@ -213,7 +207,41 @@ class KHQRTuitionService
             throw new \RuntimeException($response->json('error') ?: 'KHQR Link check request failed.');
         }
 
-        return $response->json();
+        $linkResponse = $response->json();
+
+        if ($this->isPaidResponse($linkResponse) || blank(config('khqr.api_token'))) {
+            return $linkResponse;
+        }
+
+        try {
+            $bakongResponse = $this->checkBakongPaymentStatus($payment);
+        } catch (\Throwable $exception) {
+            return array_merge($linkResponse, [
+                'bakong_fallback_error' => $exception->getMessage(),
+            ]);
+        }
+
+        if ($this->isPaidResponse($bakongResponse)) {
+            return array_merge($bakongResponse, [
+                'verification_provider' => 'bakong',
+                'khqr_link_response' => $linkResponse,
+            ]);
+        }
+
+        return array_merge($linkResponse, [
+            'bakong_fallback_response' => $bakongResponse,
+        ]);
+    }
+
+    private function checkBakongPaymentStatus(Payment $payment): array
+    {
+        $token = $this->required('KHQR_API_TOKEN', config('khqr.api_token'));
+
+        if (blank($payment->khqr_md5)) {
+            throw new \RuntimeException('Payment does not have a KHQR MD5 hash.');
+        }
+
+        return (new BakongKHQR($token))->checkTransactionByMD5($payment->khqr_md5);
     }
 
     public function hasExpired(Payment $payment): bool
@@ -225,9 +253,15 @@ class KHQRTuitionService
     {
         $verified = filter_var($response['verified'] ?? false, FILTER_VALIDATE_BOOLEAN);
         $status = strtoupper((string) ($response['status'] ?? ''));
+        $paidStatuses = ['COMPLETED', 'PAID', 'SUCCESS', 'SUCCEEDED'];
+        $unpaidStatuses = ['PENDING', 'EXPIRED', 'FAILED', 'CANCELLED', 'CANCELED', 'ERROR'];
+
+        if (array_key_exists('responseCode', $response) && (string) $response['responseCode'] === '0') {
+            return $status === '' || in_array($status, $paidStatuses, true) || ! in_array($status, $unpaidStatuses, true);
+        }
 
         if (array_key_exists('verified', $response)) {
-            return $verified && $status === 'COMPLETED';
+            return $verified && in_array($status, $paidStatuses, true);
         }
 
         if (array_key_exists('responseCode', $response)) {

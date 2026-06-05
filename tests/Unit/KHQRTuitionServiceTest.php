@@ -27,6 +27,17 @@ class KHQRTuitionServiceTest extends TestCase
         ]));
     }
 
+    public function test_it_accepts_paid_status_with_zero_response_code(): void
+    {
+        $service = new KHQRTuitionService;
+
+        $this->assertTrue($service->isPaidResponse([
+            'responseCode' => '0',
+            'status' => 'PAID',
+            'verified' => true,
+        ]));
+    }
+
     public function test_it_rejects_pending_khqr_link_response(): void
     {
         $service = new KHQRTuitionService;
